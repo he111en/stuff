@@ -1,16 +1,16 @@
 
 % Parameters
-N = 68; % Number of nodes
-p = 0.1; % Probability of edge creation
-K = 1; % Coupling strength
+N = 68; % n of nodes
+p = 0.1; % p of edge 
+K = 1; % coupling strength
 
-% Generate Erdős-Rényi random graph
-adjMatrix = rand(N) < p; % Create adjacency matrix
-adjMatrix = triu(adjMatrix, 1); % Keep upper triangle to avoid double connections
+% Erdős-Rényi graph
+adjMatrix = rand(N) < p; % adjacency matrix
+adjMatrix = triu(adjMatrix, 1); % avoid double connectionsredudancy
 adjMatrix = adjMatrix + adjMatrix'; % Make it symmetric
 
-% Kuramoto model parameters
-omega = rand(N, 1) * 2 * pi; % Natural frequencies
+% Kuramoto model 
+omega = rand(N, 1) * 2 * pi; %  frequencies
 theta = rand(N, 1) * 2 * pi; % Initial phases
 
 % Simulation parameters
