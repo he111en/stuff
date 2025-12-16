@@ -1,0 +1,129 @@
+niiFile = "";
+
+info = niftiinfo(niiFile);
+y    = niftiread(info);         % [nx x ny x nz x nt]
+y    = double(y);               % DMD wants float
+
+[nx, ny, nz, nt] = size(v);     % e.g. 78 x 96 x 78 , 616
+
+z_slice = round(nz/2);          % middle slice as default
+v2D     = squeeze(v(:,:,z_slice,:));   % [nx x ny x nt]
+
+data2D = reshape(v2D, [nx*ny, nt]);    % [n_pixels x nt]
+%Phi = reshape(Phi,[78*96*78,9]);
+
+
+% Mask: keep only pixels that vary over time
+pix_std   = std(data2D, 0, 2);        % std over time per pixel
+eps_std   = 1e-6;                     % threshold for "non-changing"
+mask      = pix_std > eps_std;        % logical vector
+X_all     = data2D(mask, :);          % [n_masked x nt]
+
+X1 = X_all(:, 1:end-1);               % [n_masked x (nt-1)]
+X2 = X_all(:, 2:end);                 % [n_masked x (nt-1)]
+
+X_mean = mean(X1, 2);                
+X1     = X1 - X_mean;
+X2     = X2 - X_mean;
+
+
+%% ============ 2) SVD– as in exact DMD in Burton ============
+
+% Exact DMD algorithm (Burton):
+% 1) [U, S, V] = svd(X1, 'econ');
+% 2) Atilde = U' * X2 * V / S;
+% 3) eig(Atilde) = W, Lambda;
+% 4) Phi = X2 * V / S * W;
+
+[U, S, V] = svd(X1, 'econ');          
+s = diag(S);                          
+r_max = length(s);
+
+energy    = s.^2;
+cumEnergy = cumsum(energy) / sum(energy);
+
+fprintf('r_90 (90%% energy): %d\n', find(cumEnergy >= 0.90, 1));
+fprintf('r_95 (95%% energy): %d\n', find(cumEnergy >= 0.95, 1));
+fprintf('r_99 (99%% energy): %d\n', find(cumEnergy >= 0.99, 1));
+
+% Quick plots (optional)
+figure;
+subplot(1,2,1)
+semilogy(s,'o-'); grid on
+xlabel('Mode index'); ylabel('Singular value (log)');
+title('Singular values of X1');
+
+subplot(1,2,2)
+plot(cumEnergy,'o-'); hold on; grid on
+yline(0.90,'--','0.90'); yline(0.95,'--','0.95'); yline(0.99,'--','0.99');
+xlabel('r'); ylabel('Cumulative energy');
+title('Cumulative energy vs r');
+
+
+%try different r to get the most useful low rank approx. that captures the
+%dominat dynamics
+candidate_r = [10 20 50];    
+for r = candidate_r
+    if r > r_max
+        warning('r = %d is larger than available rank (%d), skipping.', r, r_max);
+        continue;
+    end
+
+    fprintf('\n--- Testing r = %d ---\n', r);
+
+    % How much SVD energy do the first r modes capture?
+    energy_r = cumEnergy(r);
+    fprintf('Cumulative energy at r = %d: %.3f\n', r, energy_r);
+
+    Ur     = U(:,1:r);
+    Sr     = S(1:r,1:r);
+    Vr     = V(:,1:r);
+
+    % Reduced operator Atilde
+    Atilde = Ur' * X2 * Vr / Sr;
+
+    % Eigen-decomposition in reduced space
+    [W, Lambda] = eig(Atilde);
+
+    % DMD modes in full (masked) space
+    Phi_masked = real(X2 * (Vr / Sr) * W);   % [n_masked x r]
+
+    % ---- DMD amplitudes from first snapshot (book eq. 7.31 style) ----
+    x1 = X1(:,1);                     % initial state in masked space
+    % This is just the least-squares version of b = Phi^\dagger x1
+    [b, warn_flag] = linsolve(Phi_masked, x1);
+    if warn_flag ~= 0
+        warning('Amplitude solve is rank-deficient for r = %d (flag = %d).', r, warn_flag);
+    end
+
+    % sort modes by amplitude magnitude |b_j|
+    [b_sorted, idx_b] = sort(abs(b), 'descend');
+
+    fprintf('Largest DMD amplitudes for r = %d:\n', r);
+    n_print = min(10, r);
+    for j = 1:n_print
+        fprintf('  mode %2d: |b| = %.3e\n', idx_b(j), b_sorted(j));
+    end
+
+    Phi_full = zeros(nx*ny, r);
+    Phi_full(mask, :) = Phi_masked;
+    Phi_2D   = reshape(Phi_full, [nx, ny, r]);
+
+
+    %visualize first real modes
+    n_vis = min(6, r);
+    figure;
+    for i = 1:n_vis
+        subplot(2,3,i)
+        imagesc(Phi_2D(:,:,i));
+        axis image off
+        title(sprintf('Mode %d', i));
+        colormap hot
+    end
+    sgtitle(sprintf('First %d DMD modes for r = %d (energy = %.2f)', ...
+                    n_vis, r, energy_r));
+
+    X1_approx = U(:,1:r) * S(1:r,1:r) * V(:,1:r)';   % rank-r SVD approx
+    rel_err   = norm(X1 - X1_approx, 'fro') / norm(X1, 'fro');
+    fprintf('Relative SVD reconstruction error for r = %d: %.3f\n', r, rel_err);
+end
