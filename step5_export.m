@@ -1,0 +1,25 @@
+function step5_export(Phi, lambda, freq, damp, b, L_atlas, nx, ny, nz, info, subj, task, p, OUT_PATH)
+%Mode type [osci/relax] table & NIfTI parcel overlay export for itksnap
+is_relax = abs(imag(lambda))./abs(lambda) < 0.01;
+
+fprintf('\n  %-4s %-12s %-8s %-10s %-10s\n','Rank','Type','Damp(s)','Freq(Hz)','|lambda|');
+for k = 1:p.K_keep
+    typ = 'Relaxator'; if ~is_relax(k); typ = 'Oscillator'; end
+    fprintf('  %-4d %-12s %-8.2f %-10.4f %-10.4f\n', k, typ, damp(k), freq(k), abs(lambda(k)));
+end
+
+% Map parcel weights back to voxel space for ITK-SNAP
+outDir = fullfile(OUT_PATH, sprintf('overlays_%s_%s_top%d', subj, task, p.K_keep));
+if ~exist(outDir,'dir'); mkdir(outDir); end
+ri = info; ri.ImageSize = [nx ny nz]; ri.Datatype = 'single';
+ri.PixelDimensions = ri.PixelDimensions(1:3);
+L  = L_atlas(:);
+
+for k = 1:p.K_keep
+    vol = zeros(nx*ny*nz, 1, 'single');
+    for r = 1:p.n_roi; vol(L==r) = Phi(r,k); end
+    tag = 'relaxator'; if ~is_relax(k); tag = sprintf('osc_%.3fHz', abs(freq(k))); end
+    niftiwrite(reshape(vol,[nx ny nz]), fullfile(outDir, sprintf('mode_%02d_%s.nii',k,tag)), ri, 'Compressed',true);
+end
+fprintf('  Saved %d NIfTIs → %s\n', p.K_keep, outDir);
+end
