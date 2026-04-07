@@ -1,0 +1,68 @@
+function step5_correlations(Phi_all, SUBJ, p)
+%% STEP 5 — Cross-subject DMD mode spatial correlations
+%
+% Phi_all [360 x (n_subj * K_keep)] — all subjects' modes stacked
+%        SUBJ    — cell array of subject labels
+%        p       — params struct
+%
+% % Diagonal = 0 (self correlations omitted)
+
+n_subj  = size(Phi_all, 2) / p.K_keep;
+n_total = n_subj * p.K_keep;   % e.g. 9 x 5 = 45
+
+% Compute correlation matrix 1 triangle only
+M = zeros(n_total, n_total);
+for i = 1:n_total
+    for j = i+1 : n_total
+        r      = corrcoef(Phi_all(:,i), Phi_all(:,j));
+        M(i,j) = r(1,2);
+        M(j,i) = M(i,j);   
+    end
+end
+
+%% Build axis labels
+labels = {};
+for su = 1:n_subj
+    for k = 1:p.K_keep
+        labels{end+1} = sprintf('%s M%d', strrep(SUBJ{su},'sub-','S'), k);
+    end
+end
+
+%% Plot
+figure('Position', [100 100 900 800]);
+imagesc(M);
+colorbar;
+colormap('jet');
+caxis([-1 1]);
+hold on;
+for su = 1:n_subj-1
+    xline(su*p.K_keep + 0.5, 'k-', 'LineWidth', 1.2);
+    yline(su*p.K_keep + 0.5, 'k-', 'LineWidth', 1.2);
+end
+xticks(1:n_total); xticklabels(labels); xtickangle(90);
+yticks(1:n_total); yticklabels(labels);
+title(sprintf('Cross-subject DMD mode spatial correlations (%d subjects x %d modes)', ...
+    n_subj, p.K_keep), 'FontSize', 11);
+xlabel('Mode'); ylabel('Mode');
+
+fprintf('\n--- Cross-subject correlation summary ---\n');
+
+within_vals = [];
+for su = 1:n_subj
+    idx   = (su-1)*p.K_keep + (1:p.K_keep);
+    block = M(idx, idx);
+    mask  = ~eye(p.K_keep);
+    within_vals = [within_vals; block(mask)];
+end
+fprintf('Within-subject off-diagonal mean |r| = %.3f\n', mean(abs(within_vals)));
+
+fprintf('\nBetween-subject correlations for matching modes:\n');
+for k = 1:p.K_keep
+    idx   = k : p.K_keep : n_total;
+    block = M(idx, idx);
+    mask  = ~eye(n_subj);
+    vals  = block(mask);
+    fprintf('  Mode %d: mean r = %.3f  (min=%.3f  max=%.3f)\n', ...
+        k, mean(vals), min(vals), max(vals));
+end
+end
