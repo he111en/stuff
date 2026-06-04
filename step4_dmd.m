@@ -1,30 +1,38 @@
-function [Phi, lambda, freq, damp, b, ts] = step4_dmd(U, S, V, X1, X2, p)
-% STEP 4 — DMD + mode ordering by damping time  Δ( ie Casorso et al. 2019)
-% Relaxator: Im(lambda)/|lambda| < 0.01  → infinite period, pure decay
-% Oscillator: complex eigenvalue          → oscillates at freq = Im(mu)/2pi
+function [Phi, lambda, b, ts] = step4_dmd(U, S, V, X1, X2, p)
+%% STEP 4 — Standard DMD, top 12 modes in natural eigenvalue order
 
-Ur = U(:,1:p.r_model); Sr = S(1:p.r_model,1:p.r_model); Vr = V(:,1:p.r_model);
-[W, Lambda]  = eig(Ur' * X2 * Vr / Sr);
-lambda_all   = diag(Lambda);
-Phi_all      = real(X2 * (Vr / Sr) * W);
-b_all        = pinv(Phi_all) * X1(:,1);
-mu_all       = log(lambda_all) / p.dt_sec;
-freq_all     = imag(mu_all) / (2*pi);
-damp_all     = -p.dt_sec ./ log(abs(lambda_all));
+Ur = U(:, 1:size(S,1));
+Sr = S;
+Vr = V(:, 1:size(S,1));
 
-% Order by damping time — most persistent first
-d = damp_all; d(~(isfinite(d) & d>0)) = -Inf;
-[~, idx] = sort(d, 'descend');
-keep     = idx(1:p.K_keep);
+Atilde      = Ur' * X2 * Vr / Sr;
+[W, Lambda] = eig(Atilde);
 
-Phi = Phi_all(:,keep); lambda = lambda_all(keep);
-freq = freq_all(keep); damp = damp_all(keep); b = b_all(keep);
+Phi    = real(X2 * (Vr / Sr) * W);
+lambda = diag(Lambda);
 
-is_relax = abs(imag(lambda))./abs(lambda) < 0.01;
-fprintf('  Relaxators: %d  |  Oscillators: %d  |  Damp range: %.1f–%.1f s\n', ...
-    sum(is_relax), sum(~is_relax), min(damp), max(damp));
+%% Keep top K_keep in natural order
+Phi    = Phi(:, 1:p.K_keep);
+lambda = lambda(1:p.K_keep);
 
-% DMD state trajectories [nt-1 x K_keep]
-t  = 0:size(X1,2)-1;
-ts = real(cell2mat(arrayfun(@(k) (lambda(k).^t * b(k)).', 1:p.K_keep, 'UniformOutput',false)));
+%% Initial amplitudes
+b = pinv(Phi) * X1(:,1);   % [K_keep x 1]
+
+%% DMD state trajectories [T x K_keep]
+T  = size(X1, 2);
+t  = 0:T-1;
+ts = zeros(T, p.K_keep);
+for k = 1:p.K_keep
+    ts(:,k) = real((lambda(k).^t) * b(k)).';
+end
+
+%% Print mode table
+fprintf('\n  Top %d eigenvalues (natural DMD ordering):\n', p.K_keep);
+for k = 1:p.K_keep
+    mu   = log(lambda(k)) / p.dt_sec;
+    freq = imag(mu) / (2*pi);
+    damp = -p.dt_sec / log(abs(lambda(k)));
+    fprintf('  Mode %d  |lambda|=%.4f  freq=%.4f Hz  damp=%.2f s\n', ...
+        k, abs(lambda(k)), freq, damp);
+end
 end

@@ -1,6 +1,6 @@
 %Binary mask (atlas)
 function [X_roi, L_atlas] = step2_360roi(v, nx, ny, nz, nt, atlasFile, p)
-%% STEP 2 — Glasser ROI extraction + z-score (Casorso approach)
+%% STEP 2 — Glasser ROI extraction 
 L_atlas = niftiread(niftiinfo(atlasFile));
 if ~isequal(size(L_atlas), [nx ny nz]); error('Atlas/fMRI size mismatch.'); end
 data  = reshape(v, [nx*ny*nz, nt]);
